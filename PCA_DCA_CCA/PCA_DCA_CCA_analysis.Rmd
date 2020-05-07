@@ -1,0 +1,98 @@
+
+```{r setup, include=TRUE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r, loading packages, include=TRUE, echo=FALSE}
+defaultdir <- getwd()
+dir.create("graph")
+dir.create("table")
+# setwd(paste(defaultdir,"/graph",sep=""))
+
+#Adding the required packages for this file. Don't change the current order, and adding new packages to the first.
+packages <- c(
+  "ggplot2",
+  "tidyverse",
+  "stringr", 
+  "dplyr",
+  "factoextra",
+  "vegan",
+  "CCA") 
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))
+  lapply(packages, library, character.only = TRUE)
+} else {
+  lapply(packages, library, character.only = TRUE)
+}
+
+```
+
+```{r, Cleaning data, include=TRUE, echo=FALSE}
+otu <- read.csv(
+  paste(defaultdir,"/data/","otu.csv",sep=""),
+  header = T, sep = ",")
+
+metadata <- read.csv(
+  paste(defaultdir,"/data/","metadata.csv",sep=""),
+  header = T, sep = ",")
+
+t_otu <- as.data.frame(t(otu[,c(2:41)]))
+colnames(t_otu) <- otu$OTU_Id
+t_otu$SampleId <- rownames(t_otu)
+
+metadata_otu <- inner_join(metadata, t_otu, by = "SampleId")
+remove(t_otu)
+rownames(metadata_otu) <- metadata_otu$SampleId
+
+
+soil_nutrient <- read.csv(
+  paste(defaultdir,"/data/","soil_nutrient.csv",sep=""),
+  header = T, sep = ",")
+
+
+```
+
+```{r, PCA analysis for otu, include = TRUE, ECHO = FALSE}
+res.pca <- prcomp(metadata_otu[,-c(1, 2)], scale = TRUE)
+fviz_eig(res.pca)
+
+fviz_pca_ind(res.pca,
+             repel = TRUE     # Avoid text overlapping
+             )
+
+```
+
+```{r, DCA analysis for otu, include = TRUE, ECHO = FALSE}
+
+dca_otu <- as.data.frame(t(otu[,c(2:41)]))
+colnames(dca_otu) <- otu$OTU_Id
+
+dca_otu <- decorana(dca_otu, ira = 0) 
+
+# summary(dca_otu)
+
+plot(dca_otu, display = 'sites', main = 'Samples')
+
+plot(dca_otu, main = 'Otus')
+
+
+```
+
+```{r, CCA analysis for otu and soil_nutrient, include = TRUE, ECHO = FALSE}
+
+soil_nutrient_otu <- inner_join(metadata_otu, soil_nutrient, by = "SampleId")
+soil_nutrient_otu <- soil_nutrient_otu[, -c(8046:ncol(soil_nutrient_otu))]
+rownames(soil_nutrient_otu) <- soil_nutrient_otu$SampleId
+
+cca(soil_nutrient_otu[, c(3:43)], soil_nutrient_otu[, c(44:ncol(soil_nutrient_otu))]) %>% 
+  plot(., scaling = 1)
+
+
+```
+
+
+
+
+
+
