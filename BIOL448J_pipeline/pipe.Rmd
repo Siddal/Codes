@@ -1,0 +1,286 @@
+
+```{r}
+defaultdir <- getwd()
+dir.create("graph")
+dir.create("table")
+# setwd(paste(defaultdir,"/graph",sep=""))
+# setwd(paste(defaultdir,"/table",sep=""))
+
+
+#Adding the required packages for this file. Don't change the current order, and adding new packages to the first.
+#automatically install and library packages
+packages <- c("tidyverse",
+              "vegan",
+              "gridExtra",
+              "labdsv",
+              "indicspecies",
+              "ggplot2") 
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))
+  lapply(packages, library, character.only = TRUE)
+} else {
+  lapply(packages, library, character.only = TRUE)
+}
+
+# if tidyverse is not working, using the following 2 codes:
+# install.packages("scales")
+# install.packages("rlang")
+
+# Install the DESeq2 and phyloseq here if you have not install them in your pc before.
+#BiocManager::install("DESeq2")
+#BiocManager::install("phyloseq")
+library(DESeq2)
+library(phyloseq)
+
+source(paste(defaultdir,"/reference/BIOL448J_Functions.R",sep="")) # Function for calculating alpha diversity
+source(paste(defaultdir,"/reference/pairwise.adonis.r",sep=""))    # pairwise
+source(paste(defaultdir,"/reference/my_colours.r",sep=""))         # colour codes
+combine_pvalues = function(p){
+  return(1-pchisq(-2*sum(log(p),na.rm=T),2*sum(!is.na(p))))
+}
+
+
+```
+
+```{r}
+# read data into R
+setwd(paste(defaultdir,sep=""))
+otu_table <- read.csv(paste(defaultdir,"/data/","otu.csv",sep=""),
+                     header = T,sep = ",")
+metadata_table <- read.csv(paste(defaultdir,"/data/","metadata.csv",sep=""),
+                     header = T,sep = ",")
+
+```
+
+```{r}
+# clean data
+tax <- otu_table[22:ncol(otu_table)]
+rownames(tax) <- otu_table[,1]
+rowname <- otu_table[,1]
+otu_table <- t(otu_table[2:21])
+colnames(otu_table) <- rowname
+remove(rowname)
+
+otu_metadata <- cbind(metadata_table,otu_table)
+
+```
+
+
+```{r}
+setwd(paste(defaultdir,"/graph",sep=""))
+dir.create("AlphaDiversity")
+setwd(paste(defaultdir,"/graph/AlphaDiversity",sep=""))
+highlight_var <- "Management"
+# indicating metadata columns
+metada_col <- c(1:6)
+
+alphameasures = run_all_diversity(otu_metadata,species_col = -metada_col, filter_by = highlight_var)
+
+tmp <- colnames(alphameasures[3:8])
+for(i in 1:6){
+  plot <-  ggplot(alphameasures, aes(x = get(highlight_var), y = get(paste(tmp[i])), fill = get(highlight_var))) + 
+    geom_bar(stat = "identity",position = "dodge",width = 0.7) + 
+    theme_classic() + 
+    theme(text = element_text(face = "bold",size=15)) + 
+    labs(x=paste(highlight_var), y= paste(tmp[i])) + 
+    scale_fill_manual(highlight_var, values = colours20) + 
+    ggtitle(paste(tmp[i]))
+  pdf(paste(tmp[i],"for",highlight_var,"(s).pdf"))
+  print(plot)
+  dev.off()
+  print(plot)
+}
+remove(tmp,plot)
+
+
+```
+
+```{r}
+setwd(paste(defaultdir,"/graph",sep=""))
+dir.create("Rarefraction")
+setwd(paste(defaultdir,"/graph/Rarefraction",sep=""))
+PAE_richness <- rarefaction(otu_metadata,species_col = -c(1:6), filter_col = highlight_var, rand_combinations = 10, verbose = FALSE)
+
+plot_rare = ggplot(PAE_richness,aes(n_samples,value,colour = filter))+
+  geom_point()+
+  theme_classic()+
+  labs(x="Number of samples", y= "Value")
+pdf(paste("Rarefraction",".pdf",sep = ""))
+plot_rare
+dev.off()
+plot_rare
+remove(plot_rare)
+```
+
+```{r}
+setwd(paste(defaultdir,"/graph",sep=""))
+dir.create("NMDS")
+setwd(paste(defaultdir,"/graph/NMDS",sep=""))
+PAE_MDS <- metaMDS(otu_metadata[-metada_col])
+PAE_MDSmeta = data.frame(cbind(otu_metadata[,metada_col],PAE_MDS$points))
+
+
+plot_MDS = ggplot(PAE_MDSmeta, aes(x = MDS1,y = MDS2))+
+  geom_point(aes_string(color=highlight_var),size = 3)+
+  coord_fixed() +
+  theme_classic() + 
+  theme(text = element_text(size = 15, face = "bold")) + 
+  labs(x="NMDS1", y= "NMDS2")
+
+# The following code is used to generate the ellipses. It is made by TA of BIOL 448J.
+# In vegan package, there is also a function to do the same thing.
+if (highlight_var != ""){
+  MDS_centroid = calculate_ellipse(PAE_MDSmeta,filter_by = highlight_var)
+  plot_MDS = plot_MDS   +   geom_path(data=MDS_centroid,mapping = aes(colour = filter),size =1.25)
+
+}
+pdf(paste("NMDS", " (highlighted by", highlight_var, ")",".pdf",sep = ""))
+plot_MDS
+dev.off()
+plot_MDS
+
+
+PAE_MDSdim <- checkMDSdim((otu_metadata[-metada_col]),iter = 5)
+
+plot_stress = ggplot(PAE_MDSdim, aes(dimension, stress))+
+  geom_point(size = 2)+
+  theme_classic()+
+  theme(text = element_text(size=15,face = "bold"))
+
+pdf(paste("StressLevel for ","NMDS", "(highlighted by", highlight_var, ")",".pdf",sep = ""))
+plot_stress
+dev.off()
+plot_stress
+
+remove(PAE_MDS, PAE_MDSmeta, plot_MDS, plot_stress, PAE_MDSdim, plot_stress, MDS_centroid)
+```
+
+```{r}
+setwd(paste(defaultdir,"/table",sep=""))
+dir.create(paste(highlight_var))
+setwd(paste(defaultdir,"/table/", highlight_var,sep=""))
+PAE_permanova <- adonis(as.formula(paste("otu_metadata[-metada_col] ~",highlight_var)),data=otu_metadata[,metada_col])
+PAE_permanova
+pairwise_table <- table(pairwise.adonis(otu_metadata[,-metada_col],otu_metadata[,metada_col][[highlight_var]]))
+write.csv(pairwise_table,'pairwise_table.csv')
+pairwise_table
+```
+
+```{r}
+setwd(paste(defaultdir,"/graph",sep=""))
+dir.create("Relative_abundance")
+setwd(paste(defaultdir,"/graph/Relative_abundance",sep=""))
+# indicating number of otus displayed
+N_top=25
+N_least=200
+
+
+
+meta <- otu_metadata[,metada_col]
+otu <- otu_metadata[,-metada_col]
+
+meta$total_abundance <- rowSums(otu_metadata[,-metada_col])
+
+otu_and_metadata <- as.data.frame(cbind(meta,otu))
+
+PAE_grouped <- gather(otu_and_metadata, key = "OTU",value = "abundance",-(1:10))
+
+plotrelative_abundance_allOTU <- ggplot(PAE_grouped,aes(x=SampleID,y=(abundance)*100,fill=OTU))+
+  geom_bar(stat = "identity",position = "fill",color="white") +
+  facet_grid(as.formula(paste("~",highlight_var)),scales = "free_x", space = "free")+
+  theme(legend.position = "none",
+    axis.text.x = element_text(angle=-90, size= 7),
+    axis.ticks.x = element_blank())+
+  labs(x="Sample ID", y= " Relative Abundance") + 
+  ggtitle("All OTU Plot")
+
+pdf(paste("RelativeAbundance All OTU Plot", "(", highlight_var,")",".pdf"))
+    
+plotrelative_abundance_allOTU
+dev.off()
+plotrelative_abundance_allOTU
+
+
+
+PAE_taxa_abundance <- colSums(otu_metadata[,-metada_col])
+top_N_taxa <- names(sort(PAE_taxa_abundance,decreasing = TRUE)[1:N_top])
+
+PAE_top_N <- filter(PAE_grouped, OTU %in% top_N_taxa)
+
+plotrelative_abundance_top20OTU <- ggplot(PAE_top_N,aes(x=SampleID,y=(abundance/total_abundance)*100,fill=OTU))+
+  geom_bar(stat = "identity",position = "fill",color="white") +
+  facet_grid(as.formula(paste("~",highlight_var)),scales = "free_x", space = "free")+
+  theme(axis.text.x = element_text(angle=-90, size= 7),
+        axis.ticks.x = element_blank())+
+  labs(x="Sample ID", y= " Relative Abundance (%)")+
+  scale_fill_manual(values = colours20)
+
+pdf(paste("RelativeAbundance top", N_top,"OTU Plot,", "(", highlight_var,")",".pdf"))
+plotrelative_abundance_top20OTU
+dev.off()
+plotrelative_abundance_top20OTU
+
+PAE_taxa_abundance <- colSums(otu_metadata[,-metada_col])
+
+
+top_N_taxa <- names(sort(PAE_taxa_abundance,decreasing = FALSE)[1:N_least])
+
+PAE_top_N <- filter(PAE_grouped, OTU %in% top_N_taxa)
+
+plotrelative_abundance_rarest200OTU <- ggplot(PAE_top_N,aes(x=SampleID,y=(abundance/total_abundance)*100,fill=OTU))+
+  geom_bar(stat = "identity",position = "fill",color="white") +
+  facet_grid(as.formula(paste("~",highlight_var)),scales = "free_x", space = "free")+
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle=-90, size= 7),
+        axis.ticks.x = element_blank())+
+  labs(x="Sample ID", y= " Relative Abundance (%)")+
+  scale_fill_manual(values = colours200)
+
+
+pdf(paste("RelativeAbundance rarest", N_least, "OTU Plot,", "(", highlight_var,")",".pdf"))
+plotrelative_abundance_rarest200OTU
+dev.off()
+plotrelative_abundance_rarest200OTU
+
+
+remove(plotrelative_abundance_allOTU, top_N_taxa, PAE_top_N, plotrelative_abundance_top20OTU, plotrelative_abundance_rarest200OTU, N_top, N_least, otu, meta, PAE_grouped)
+
+```
+
+```{r}
+setwd(paste(defaultdir,"/graph/",sep=""))
+dir.create("DESeq")
+setwd(paste(defaultdir,"/graph/DESeq",sep=""))
+# gathering all data in phyloseq format
+otu_plus1 <- otu_metadata[,-metada_col]+1
+PAE_otu_phyloseq <- otu_table(otu_plus1,taxa_are_rows = FALSE)
+PAE_metadata_phyloseq <- sample_data(otu_metadata[,-metada_col])
+PAE_taxonomy_phyloseq <- tax_table(tax)
+
+PAE_phyloseq <- phyloseq(PAE_otu_phyloseq,PAE_metadata_phyloseq,PAE_taxonomy_phyloseq)
+
+
+PAE_DEseq <- phyloseq_to_deseq2(PAE_phyloseq, design = as.formula(paste("~",highlight_var)))
+PAE_DEseq <- DESeq(PAE_DEseq,test="Wald",fitType="parametric")
+
+PAE_DEseq_results <- results(PAE_DEseq)
+
+PAE_DEseq_results <- data.frame(cbind(PAE_DEseq_results,PAE_taxa))
+# gathering all data in phyloseq format
+
+
+# Plotting differential abundance for all genus
+DEseqbeforefilter <- ggplot(PAE_DEseq_results,aes(x=Rank6,y=log2FoldChange,color=Rank6))+
+  geom_point() +
+  geom_hline(yintercept = 0)+
+  theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 90,hjust = 0,vjust = 0.5))
+
+pdf(paste("All genus","-DEseq before filtering.pdf"))
+DEseqbeforefilter
+dev.off()
+
+remove(DEseqbeforefilter, PAE_DEseq_results, PAE_DEseq, PAE_phyloseq, PAE_taxonomy_phyloseq, PAE_metadata_phyloseq, PAE_otu_phyloseq, otu_plus1)
+
+```
+

@@ -44,6 +44,6 @@ def DNA_ReserveComplement(dna_seq):
 def DNAtoRNA_Transcription(dna_seq):
     return dna_seq.replace("T", "U")
 
-dna ="ATT"
+dna ="ATTAATTTTGGG"
 DNA_ReserveComplement(dna)
 DNAtoRNA_Transcription(dna)
